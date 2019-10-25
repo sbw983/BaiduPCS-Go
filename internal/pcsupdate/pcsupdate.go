@@ -8,11 +8,11 @@ import (
 	"github.com/iikira/BaiduPCS-Go/internal/pcsconfig"
 	"github.com/iikira/BaiduPCS-Go/pcsliner"
 	"github.com/iikira/BaiduPCS-Go/pcsutil"
+	"github.com/iikira/BaiduPCS-Go/pcsutil/checkaccess"
 	"github.com/iikira/BaiduPCS-Go/pcsutil/converter"
-	"github.com/iikira/BaiduPCS-Go/requester"
+	"github.com/iikira/BaiduPCS-Go/pcsutil/jsonhelper"
 	"github.com/iikira/BaiduPCS-Go/requester/downloader"
 	"github.com/iikira/BaiduPCS-Go/requester/rio"
-	"github.com/iikira/baidu-tools/pan"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -27,62 +27,42 @@ const (
 )
 
 type info struct {
-	filename string
-	size     int64
+	filename    string
+	size        int64
+	downloadURL string
 }
 
 // CheckUpdate 检测更新
 func CheckUpdate(version string, yes bool) {
-	if !checkWritable() {
+	if !checkaccess.AccessRDWR(pcsutil.ExecutablePath()) {
 		fmt.Printf("程序目录不可写, 无法更新.\n")
 		return
 	}
 	fmt.Println("检测更新中, 稍候...")
-	sharedInfo := pan.NewSharedInfo("https://pan.baidu.com/s/100qbYyjlpSNNkrUWq8MKng")
-	sharedInfo.Client = requester.NewHTTPClient()
-	sharedInfo.Client.SetHTTPSecure(pcsconfig.Config.EnableHTTPS())
-
-	err := sharedInfo.Auth("7vgf")
+	c := pcsconfig.Config.HTTPClient()
+	resp, err := c.Req("GET", "https://api.github.com/repos/iikira/BaiduPCS-Go/releases/latest", nil, nil)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
 	if err != nil {
 		fmt.Printf("获取数据错误: %s\n", err)
 		return
 	}
 
-	sharedInfo.ShareID = 1601412318
-	sharedInfo.UK = 4163763975
-	sharedInfo.RootSharePath = "/Documents/Golang"
-
-	versionList, err := sharedInfo.List(ReleaseName)
+	releaseInfo := ReleaseInfo{}
+	err = jsonhelper.UnmarshalData(resp.Body, &releaseInfo)
 	if err != nil {
-		fmt.Printf("获取版本列表错误: %s\n", err)
+		fmt.Printf("json数据解析失败: %s\n", err)
 		return
 	}
 
-	latestVersion := ""
-	for _, versionInfo := range versionList {
-		if versionInfo == nil {
-			continue
-		}
-
-		// 忽略 Beta 版本, 和版本前缀不符的
-		if strings.Contains(versionInfo.Filename, "Beta") || !strings.HasPrefix(versionInfo.Filename, "v") {
-			continue
-		}
-
-		if strings.Compare(latestVersion, versionInfo.Filename) == 1 {
-			continue
-		}
-
-		latestVersion = versionInfo.Filename
-	}
-
-	// 没有更新
-	if strings.Compare(version, latestVersion) != -1 {
+	// 没有更新, 或忽略 Beta 版本, 和版本前缀不符的
+	if strings.Contains(releaseInfo.TagName, "Beta") || !strings.HasPrefix(releaseInfo.TagName, "v") || version >= releaseInfo.TagName {
 		fmt.Printf("未检测到更新!\n")
 		return
 	}
 
-	fmt.Printf("检测到新版本: %s\n", latestVersion)
+	fmt.Printf("检测到新版本: %s\n", releaseInfo.TagName)
 
 	line := pcsliner.NewLiner()
 	defer line.Close()
@@ -100,53 +80,47 @@ func CheckUpdate(version string, yes bool) {
 		}
 	}
 
-	fileList, err := sharedInfo.List(ReleaseName + "/" + latestVersion)
-	if err != nil {
-		fmt.Printf("获取数据错误: %s\n", err)
-		return
-	}
-
 	builder := &strings.Builder{}
-
-	builder.WriteString("BaiduPCS-Go-" + latestVersion + "-" + runtime.GOOS + "-.*?")
-	switch runtime.GOARCH {
-	case "amd64":
-		builder.WriteString("(amd64|x86_64|x64)")
-	case "386":
-		builder.WriteString("(386|x86)")
-	case "arm":
-		builder.WriteString("(armv5|armv7|arm)")
-	case "arm64":
-		builder.WriteString("arm64")
-	case "mips":
-		builder.WriteString("mips")
-	case "mips64":
-		builder.WriteString("mips64")
-	case "mipsle":
-		builder.WriteString("(mipsle|mipsel)")
-	case "mips64le":
-		builder.WriteString("(mips64le|mips64el)")
-	default:
-		builder.WriteString(runtime.GOARCH)
+	builder.WriteString("BaiduPCS-Go-" + releaseInfo.TagName + "-" + runtime.GOOS + "-.*?")
+	if runtime.GOOS == "darwin" && (runtime.GOARCH == "arm" || runtime.GOARCH == "arm64") {
+		builder.WriteString("arm")
+	} else {
+		switch runtime.GOARCH {
+		case "amd64":
+			builder.WriteString("(amd64|x86_64|x64)")
+		case "386":
+			builder.WriteString("(386|x86)")
+		case "arm":
+			builder.WriteString("(armv5|armv7|arm)")
+		case "arm64":
+			builder.WriteString("arm64")
+		case "mips":
+			builder.WriteString("mips")
+		case "mips64":
+			builder.WriteString("mips64")
+		case "mipsle":
+			builder.WriteString("(mipsle|mipsel)")
+		case "mips64le":
+			builder.WriteString("(mips64le|mips64el)")
+		default:
+			builder.WriteString(runtime.GOARCH)
+		}
 	}
 	builder.WriteString("\\.zip")
 
 	exp := regexp.MustCompile(builder.String())
 
 	var targetList []*info
-	for _, fileInfo := range fileList {
-		if fileInfo == nil {
+	for _, asset := range releaseInfo.Assets {
+		if asset == nil || asset.State != "uploaded" {
 			continue
 		}
 
-		if fileInfo.Isdir == 1 {
-			continue
-		}
-
-		if exp.MatchString(fileInfo.Filename) {
+		if exp.MatchString(asset.Name) {
 			targetList = append(targetList, &info{
-				filename: fileInfo.Filename,
-				size:     fileInfo.Size,
+				filename:    asset.Name,
+				size:        asset.Size,
+				downloadURL: asset.BrowserDownloadURL,
 			})
 		}
 	}
@@ -192,23 +166,13 @@ func CheckUpdate(version string, yes bool) {
 
 	fmt.Printf("准备下载更新: %s\n", target.filename)
 
-	finfo, err := sharedInfo.Meta(ReleaseName + "/" + latestVersion + "/" + target.filename)
-	if err != nil {
-		fmt.Printf("获取文件信息错误: %s\n", err)
-		return
-	}
-
-	if finfo.Dlink == "" {
-		fmt.Printf("未获取到下载链接")
-		return
-	}
-
 	// 开始下载
 	buf := rio.NewBuffer(make([]byte, target.size))
-	der := downloader.NewDownloader(finfo.Dlink, buf, &downloader.Config{
-		MaxParallel: 10,
+	der := downloader.NewDownloader(target.downloadURL, buf, &downloader.Config{
+		MaxParallel: 20,
 		CacheSize:   10000,
 	})
+	der.SetClient(c)
 
 	exitChan := make(chan struct{})
 	der.OnExecute(func() {

@@ -7,13 +7,6 @@
 
 This project was largely inspired by [GangZhuo/BaiduPCS](https://github.com/GangZhuo/BaiduPCS)
 
-## 解决错误代码4, No permission to do this operation
-```
-BaiduPCS-Go config set -appid 266719
-```
-
-详见讨论 [#387](https://github.com/iikira/BaiduPCS-Go/issues/387)
-
 ## 注意
 
 此文档只针对于最新的commit, 可能不适用于已发布的最新版本.
@@ -40,12 +33,13 @@ BaiduPCS-Go config set -appid 266719
   * [输出工作目录](#输出工作目录)
   * [列出目录](#列出目录)
   * [列出目录树形图](#列出目录树形图)
-  * [获取单个文件/目录的元信息](#获取单个文件目录的元信息)
+  * [获取文件/目录的元信息](#获取文件目录的元信息)
   * [搜索文件](#搜索文件)
   * [下载文件/目录](#下载文件目录)
   * [上传文件/目录](#上传文件目录)
   * [获取下载直链](#获取下载直链)
   * [手动秒传文件](#手动秒传文件)
+  * [修复文件MD5](#修复文件MD5)
   * [获取本地文件的秒传信息](#获取本地文件的秒传信息)
   * [导出文件/目录](#导出文件目录)
   * [创建目录](#创建目录)
@@ -62,7 +56,12 @@ BaiduPCS-Go config set -appid 266719
     + [查询离线下载任务列表](#查询离线下载任务列表)
     + [取消离线下载任务](#取消离线下载任务)
     + [删除离线下载任务](#删除离线下载任务)
+  * [回收站](#回收站)
+    + [列出回收站文件列表](#列出回收站文件列表)
+    + [还原回收站文件或目录](#还原回收站文件或目录)
+    + [删除回收站文件或目录/清空回收站](#删除回收站文件或目录清空回收站)
   * [显示和修改程序配置项](#显示和修改程序配置项)
+  * [测试通配符](#测试通配符)
   * [工具箱](#工具箱)
 - [初级使用教程](#初级使用教程)
   * [1. 查看程序使用说明](#1-查看程序使用说明)
@@ -74,6 +73,7 @@ BaiduPCS-Go config set -appid 266719
   * [7. 退出程序](#7-退出程序)
 - [常见问题](#常见问题)
 - [TODO](#todo)
+- [相关文档](#相关文档)
 - [交流反馈](#交流反馈)
 - [捐助](#捐助)
 
@@ -299,13 +299,10 @@ BaiduPCS-Go tree <目录>
 BaiduPCS-Go tree
 ```
 
-## 获取单个文件/目录的元信息
+## 获取文件/目录的元信息
+```
+BaiduPCS-Go meta <文件/目录1> <文件/目录2> <文件/目录3> ...
 
-获取单个文件/目录的元信息
-```
-BaiduPCS-Go meta <文件/目录>
-```
-```
 # 默认获取工作目录元信息
 BaiduPCS-Go meta
 ```
@@ -395,7 +392,12 @@ BaiduPCS-Go u <本地文件/目录的路径1> <文件/目录2> <文件/目录3> 
 
 #### 注意:
 
-* 分片上传之后, 服务器可能会记录到错误的文件md5, 程序会在上传完成后的修复md5, 修复md5不一定能成功, 但文件的完整性是没问题的.
+* 分片上传之后, 服务器可能会记录到错误的文件md5, 可使用 fixmd5 命令尝试修复文件的MD5值, 修复md5不一定能成功, 但文件的完整性是没问题的.
+
+fixmd5 命令使用方法:
+```
+BaiduPCS-Go fixmd5 -h
+```
 
 * 禁用分片上传可以保证服务器记录到正确的md5.
 
@@ -421,9 +423,9 @@ BaiduPCS-Go locate <文件1> <文件2> ...
 
 #### 注意
 
-若该功能无法正常使用, 提示`user is not authorized, hitcode:101`, 尝试更换 User-Agent 为 `netdisk`:
+若该功能无法正常使用, 提示`user is not authorized, hitcode:xxx`, 尝试更换 User-Agent 为 `netdisk;2.2.51.6;netdisk;10.0.63;PC;android-android`:
 ```
-BaiduPCS-Go config set -user_agent "netdisk"
+BaiduPCS-Go config set -user_agent "netdisk;2.2.51.6;netdisk;10.0.63;PC;android-android"
 ```
 
 ## 手动秒传文件
@@ -438,13 +440,38 @@ BaiduPCS-Go ru -length=<文件的大小> -md5=<文件的md5值> -slicemd5=<文�
 
 遇到同名文件将会自动覆盖! 
 
+可能无法秒传 20GB 以上的文件!!
+
 #### 例子:
 ```
 # 如果秒传成功, 则保存到网盘路径 /test
 BaiduPCS-Go rapidupload -length=56276137 -md5=fbe082d80e90f90f0fb1f94adbbcfa7f -slicemd5=38c6a75b0ec4499271d4ea38a667ab61 -crc32=314332359 /test
+```
 
-# 精简一下, 如果秒传成功, 则保存到网盘路径 /test
-BaiduPCS-Go rapidupload -length=56276137 -md5=fbe082d80e90f90f0fb1f94adbbcfa7f /test
+
+## 修复文件MD5
+```
+BaiduPCS-Go fixmd5 <文件1> <文件2> <文件3> ...
+```
+
+尝试修复文件的MD5值, 以便于校验文件的完整性和导出文件.
+
+使用分片上传文件, 当文件分片数大于1时, 百度网盘服务端最终计算所得的md5值和本地的不一致, 这可能是百度网盘的bug.
+
+不过把上传的文件下载到本地后，对比md5值是匹配的, 也就是文件在传输中没有发生损坏.
+
+对于MD5值可能有误的文件, 程序会在获取文件的元信息时, 给出MD5值 "可能不正确" 的提示, 表示此文件可以尝试进行MD5值修复.
+
+修复文件MD5不一定能成功, 原因可能是服务器未刷新, 可过几天后再尝试.
+
+修复文件MD5的原理为秒传文件, 即修复文件MD5成功后, 文件的**创建日期, 修改日期, fs_id, 版本历史等信息**将会被覆盖, 修复的MD5值将覆盖原先的MD5值, 但不影响文件的完整性.
+
+注意: 无法修复 **20GB** 以上文件的 md5!!
+
+#### 例子:
+```
+# 修复 /我的资源/1.mp4 的 MD5 值
+BaiduPCS-Go fixmd5 /我的资源/1.mp4
 ```
 
 ## 获取本地文件的秒传信息
@@ -470,6 +497,10 @@ BaiduPCS-Go ep <文件/目录1> <文件/目录2> ...
 导出网盘内的文件或目录, 原理为秒传文件, 此操作会生成导出文件或目录的命令.
 
 #### 注意
+
+**无法导出 20GB 以上的文件!!**
+
+**无法导出文件的版本历史等数据!!**
 
 并不是所有的文件都能导出成功, 程序会列出无法导出的文件列表
 
@@ -636,12 +667,55 @@ BaiduPCS-Go offlinedl query 12345
 BaiduPCS-Go offlinedl cancel 12345
 ```
 
+## 回收站
+```
+BaiduPCS-Go recycle
+```
+
+回收站操作.
+
+### 列出回收站文件列表
+```
+BaiduPCS-Go recycle list
+```
+
+#### 可选参数
+```
+  --page value  回收站文件列表页数 (default: 1)
+```
+
+### 还原回收站文件或目录
+```
+BaiduPCS-Go recycle restore <fs_id 1> <fs_id 2> <fs_id 3> ...
+```
+
+根据文件/目录的 fs_id, 还原回收站指定的文件或目录.
+
+### 删除回收站文件或目录/清空回收站
+```
+BaiduPCS-Go recycle delete [-all] <fs_id 1> <fs_id 2> <fs_id 3> ...
+```
+
+根据文件/目录的 fs_id 或 -all 参数, 删除回收站指定的文件或目录或清空回收站.
+
+#### 例子
+```
+# 从回收站还原两个文件, 其中的两个文件的 fs_id 分别为 1013792297798440 和 643596340463870
+BaiduPCS-Go recycle restore 1013792297798440 643596340463870
+
+# 从回收站删除两个文件, 其中的两个文件的 fs_id 分别为 1013792297798440 和 643596340463870
+BaiduPCS-Go recycle delete 1013792297798440 643596340463870
+
+# 清空回收站, 程序不会进行二次确认, 谨慎操作!!!
+BaiduPCS-Go recycle delete -all
+```
+
 ## 显示程序环境变量
 ```
 BaiduPCS-Go env
 ```
 
-BAIDUPCS_GO_CONFIG_DIR: 为具体的存储目录,
+BAIDUPCS_GO_CONFIG_DIR: 配置文件路径,
 
 BAIDUPCS_GO_VERBOSE: 是否启用调试.
 
@@ -678,6 +752,19 @@ BaiduPCS-Go config set -max_parallel 150
 
 # 组合设置
 BaiduPCS-Go config set -max_parallel 150 -savedir D:/Downloads
+```
+
+## 测试通配符
+```
+BaiduPCS-Go match <通配符表达式>
+```
+
+测试通配符匹配路径, 操作成功则输出所有匹配到的路径.
+
+#### 例子
+```
+# 匹配 /我的资源 目录下所有mp4格式的文件
+BaiduPCS-Go match /我的资源/*.mp4
 ```
 
 ## 工具箱
@@ -787,8 +874,9 @@ cli交互模式下, 运行命令 `config set -max_parallel 250` 将下载最大�
 
 # TODO
 
-1. 上传大文件;
-2. 回收站操作, 例如查询回收站文件, 还原文件或目录等.
+
+# 相关文档
+详见: https://github.com/iikira/BaiduPCS-Go/tree/master/docs
 
 # 交流反馈
 

@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"github.com/iikira/BaiduPCS-Go/baidupcs"
 	"github.com/iikira/BaiduPCS-Go/pcstable"
+	"github.com/iikira/BaiduPCS-Go/pcsutil/converter"
 	"github.com/iikira/baidu-tools/tieba"
 	"github.com/olekukonko/tablewriter"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -43,6 +45,7 @@ func (baidu *Baidu) BaiduPCS() *baidupcs.BaiduPCS {
 	pcs := baidupcs.NewPCS(Config.appID, baidu.BDUSS)
 	pcs.SetHTTPS(Config.enableHTTPS)
 	pcs.SetUserAgent(Config.userAgent)
+	pcs.SetUID(baidu.UID)
 	return pcs
 }
 
@@ -52,7 +55,7 @@ func (baidu *Baidu) GetSavePath(path string) string {
 	dirStr := fmt.Sprintf("%s/%d_%s%s/.",
 		Config.saveDir,
 		baidu.UID,
-		baidu.Name,
+		converter.TrimPathInvalidChars(baidu.Name),
 		path,
 	)
 
@@ -61,6 +64,14 @@ func (baidu *Baidu) GetSavePath(path string) string {
 		dir = filepath.Clean(dirStr)
 	}
 	return dir
+}
+
+// PathJoin 合并工作目录和相对路径p, 若p为绝对路径则忽略
+func (baidu *Baidu) PathJoin(p string) string {
+	if path.IsAbs(p) {
+		return p
+	}
+	return path.Join(baidu.Workdir, p)
 }
 
 // BaiduUserList 百度帐号列表

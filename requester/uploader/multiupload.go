@@ -6,6 +6,7 @@ import (
 	"github.com/iikira/BaiduPCS-Go/pcsutil/converter"
 	"github.com/iikira/BaiduPCS-Go/requester"
 	"github.com/iikira/BaiduPCS-Go/requester/rio"
+	"sync"
 	"time"
 )
 
@@ -37,6 +38,7 @@ type (
 		executed                bool
 		finished                chan struct{}
 		canceled                chan struct{}
+		closeCanceledOnce       sync.Once
 		updateInstanceStateChan chan struct{}
 	}
 )
@@ -160,7 +162,7 @@ func (muer *MultiUploader) OnCancel(onCancelEvent requester.Event) {
 	muer.onCancelEvent = onCancelEvent
 }
 
-//OnCancel 设置取消上传事件
+//OnError 设置上传发生错误事件
 func (muer *MultiUploader) OnError(onErrorEvent requester.EventOnError) {
 	muer.onErrorEvent = onErrorEvent
 }
